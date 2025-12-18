@@ -11,7 +11,6 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
-from webdriver_manager.chrome import ChromeDriverManager
 
 # --- إعدادات ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -58,7 +57,6 @@ def save_account(username, password):
 def login_and_get_info(email, password, verification_code=None):
     driver = None
     try:
-        service = ChromeDriverManager().install()
         options = webdriver.ChromeOptions()
         
         # خيارات قوية جداً لإخفاء البوت
@@ -81,16 +79,11 @@ def login_and_get_info(email, password, verification_code=None):
         })
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-        driver = webdriver.Chrome(service=service, options=options)
+        # استخدام Selenium القياسي
+        driver = webdriver.Chrome(options=options)
         
-        stealth(driver,
-            languages=["en-US", "en"],
-            vendor="Google Inc.",
-            platform="Win32",
-            webgl_vendor="Intel Inc.",
-            renderer="Intel Iris OpenGL Engine",
-            fix_hairline=True,
-        )
+        # تنفيذ سكربت لخفاء البوت
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
         driver.get("https://www.tiktok.com/login/phone-or-email/email")
         
