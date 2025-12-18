@@ -7,17 +7,28 @@ import random
 import logging
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
+import undetected_chromedriver as uc
 
 # --- إعدادات ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+USE_PROXY = os.environ.get("USE_PROXY", "false").lower() == "true"
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# --- قائمة من User-Agents حقيقية للتناوب عليها ---
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/115.0',
+]
 
 # --- حالات المحادثة ---
 (USERNAME, PASSWORD, VERIFICATION_CODE) = range(3)
@@ -28,7 +39,7 @@ ACCOUNTS_FILE = 'user.txt'
 # --- قائمة لتخزين بيانات الدخول المتعددة ---
 login_queue = []
 
-# --- دالات مساعدة لقراءة وحفظ الحسابات ---
+# --- دالة مساعدة لقراءة وحفظ الحسابات ---
 def read_accounts():
     accounts = {}
     if not os.path.exists(ACCOUNTS_FILE):
@@ -54,12 +65,12 @@ def save_account(username, password):
             f.write(f"user: {username} passowed: {password}\n")
 
 # --- دالة تسجيل الدخول ---
-def login_and_get_info(email, password, verification_code=None):
+def login_and_get_info(email, password, verification_code=None, update=None, context=None):
     driver = None
     try:
         options = webdriver.ChromeOptions()
         
-        # خيارات قوية جداً لإخفاء البوت
+        # --- خيارات قوية لإخفاء البوت ---
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -77,13 +88,33 @@ def login_and_get_info(email, password, verification_code=None):
             'credentials_enable_service': False,
             'profile.password_manager_enabled': False
         })
-        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-        # استخدام Selenium القياسي
-        driver = webdriver.Chrome(options=options)
-        
-        # تنفيذ سكربت لخفاء البوت
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        # --- تغيير الـ User-Agent بشكل دوري ---
+        random_user_agent = random.choice(USER_AGENTS)
+        options.add_argument(f'user-agent={random_user_agent}')
+        logger.info(f"Using User-Agent: {random_user_agent}")
+
+        # --- إعدادات البروكسي (اختياري) ---
+        if USE_PROXY:
+            # هذه هي مجرد أمثلة، يجب استبدالها ببيانات بروكسي حقيقية
+            # PROXY_IP = "192.168.1.1"
+            # PROXY_PORT = "8080"
+            # options.add_argument(f'--proxy-server=http://{PROXY_IP}:{PROXY_PORT}')
+            logger.info("Proxy is enabled (Note: Configure proxy details in the code).")
+        else:
+            logger.info("Proxy is disabled.")
+
+        # --- استخدام مدير الـ WebDriver الخاص بـ undetected-chromedriver ---
+        driver = uc.Chrome(options=options, version_main=None, use_subprocess=False)
+
+        stealth(driver,
+            languages=["en-US", "en"],
+            vendor="Google Inc.",
+            platform="Win32", # تغيير النظام ليتناسب الـ User-Agent
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True,
+        )
 
         driver.get("https://www.tiktok.com/login/phone-or-email/email")
         
@@ -93,7 +124,7 @@ def login_and_get_info(email, password, verification_code=None):
 
         driver.find_element(By.XPATH, "//input[contains(@placeholder, 'Password')]").send_keys(password)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        time.sleep(5) # انتظار أطول قليلاً
+        time.sleep(5)
 
         if "verification" in driver.current_url:
             if not verification_code:
@@ -107,7 +138,7 @@ def login_and_get_info(email, password, verification_code=None):
             time.sleep(4)
 
         if "reset-password" in driver.current_url:
-            return {"status": "need_new_password", "message": "كلمة المرور خاطئة. يرجى تسجيل الدخول يدوياً لتغييرها."}
+            return {"status": "need_new_password", "message": "كلمة المرور خاطئة. يرجى تسجيل الدخول يدوياً."}
 
         WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//div[@data-e2e='top-nav-avatar']//img"))
@@ -132,11 +163,10 @@ def login_and_get_info(email, password, verification_code=None):
         return {"status": "success", "info": profile_info}
 
     except Exception as e:
-        # طباعة الخطأ الكامل في السجلات للتشخيص
-        logger.error(f"Error during login for {email}: {e}", exc_info=True)
         if driver:
             driver.quit()
-        return {"status": "failed", "message": f"فشل تسجيل الدخول. قد يكون الموقع قد اكتشف البوت."}
+        logger.error(f"Error during login for {email}: {e}", exc_info=True)
+        return {"status": "failed", "message": f"فشل تسجيل الدخول: {str(e)}"}
 
 # --- معالجات الأوامر والرسائل ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -151,7 +181,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def new_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(text="أرسل معلومات تسجيل الدخول بصيغة:\n\n`user: اسم_المستخدم passowed: كلمة_المرور`\n\nيمكنك إرسال عدة أسطر لتسجيل دخول أكثر من حساب.")
+    await query.edit_message_text(text="أرسل لي معلومات تسجيل الدخول بصيغة:\n\n`user: اسم_المستخدم passowed: كلمة_المرور`\n\nيمكنك إرسال عدة أسطر لتسجيل دخول أكثر من حساب.")
     return USERNAME
 
 async def get_login_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,13 +211,11 @@ async def get_login_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("لم يتم العثور على بيانات صالحة. يرجى المحاولة مرة أخرى.")
         return ConversationHandler.END
 
-    await update.message.reply_text(f"تم استلام {len(login_queue)} طلب. جاري البدء...")
-    
+    await update.message.reply_text(f"تم استلام {len(login_queue)} طلب تسجيل دخول. سيتم البدء في المعالجة...")
     await process_login_queue(update, context)
     return ConversationHandler.END
 
 async def process_login_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تعالج طلبات تسجيل الدخول بشكل تسلسلي."""
     for i, account in enumerate(login_queue):
         username = account['username']
         password = account['password']
