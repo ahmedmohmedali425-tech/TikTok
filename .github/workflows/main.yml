@@ -1,37 +1,26 @@
-# اسم الـ Workflow الذي سيظهر في واجهة GitHub
 name: Run TikTok Login Bot
 
-# متى يتم تشغيل هذا الـ Workflow
 on:
-  # يدوياً عبر الضغط على زر في واجهة GitHub
-  workflow_dispatch:
-  # أو بشكل دوري كل يوم في الساعة 9 صباحاً بتوقيت UTC
-  # schedule:
-  #  - cron: '0 9 * * *'
+  workflow_dispatch: # للسماح بالتشغيل اليدوي
 
 jobs:
   build:
-    # نوع الخادم الذي سيعمل عليه الكود (Ubuntu)
     runs-on: ubuntu-latest
 
     steps:
-      # الخطوة 1: سحب الكود من المستودع
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # الخطوة 2: تثبيت Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # الخطوة 3: تثبيت المتطلبات من ملف requirements.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install selenium undetected-chromedriver selenium-stealth
 
-      # الخطوة 4: تثبيت المتصفح كروم و Xvfb (للمحاكاة الرسومية)
       - name: Install Chrome and Xvfb
         run: |
           sudo apt-get update
@@ -41,12 +30,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
 
-      # الخطوة 5: تشغيل الكود
       - name: Run the bot
         env:
-          # تمرير الـ Secrets إلى الكود كمتغيرات بيئية
-          TIKTOK_USERNAME: ${{ secrets.TIKTOK_USERNAME }}
-          TIKTOK_PASSWORD: ${{ secrets.TIKTOK_PASSWORD }}
+          # تمرير الـ Secret الذي يحتوي على جميع الحسابات
+          TIKTOK_ACCOUNTS: ${{ secrets.TIKTOK_ACCOUNTS }}
         run: |
-          # تشغيل Xvfb في الخلفية ثم تشغيل الكود
-          xvfb-run -a python main.py
+          # تشغيل الكود
+          python main.py
