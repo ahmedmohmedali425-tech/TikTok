@@ -1,3 +1,4 @@
+
 import os
 import telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -5,8 +6,6 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 import time
 import random
 import logging
-import asyncio
-import threading
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -15,16 +14,13 @@ from selenium_stealth import stealth
 import undetected_chromedriver as uc
 
 # --- إعدادات ---
-# قراءة التوكن من متغير بيئي لأمان أكبر
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-
-# تفعيل السجلات لرؤية الأخطاء
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# --- حالات المحادثة (Conversation States) ---
+# --- حالات المحادثة ---
 (USERNAME, PASSWORD, VERIFICATION_CODE) = range(3)
 
 # --- ملف لحفظ الحسابات ---
@@ -33,14 +29,13 @@ ACCOUNTS_FILE = 'user.txt'
 # --- قائمة لتخزين بيانات الدخول المتعددة ---
 login_queue = []
 
-# --- دالة مساعدة لقراءة الحسابات ---
+# --- دالات مساعدة لقراءة وحفظ الحسابات ---
 def read_accounts():
     accounts = {}
     if not os.path.exists(ACCOUNTS_FILE):
         return accounts
     with open(ACCOUNTS_FILE, 'r', encoding='utf-8') as f:
         for line in f:
-            # قراءة الصيغة الجديدة: user: ... passowed: ...
             if 'user:' in line and 'passowed:' in line:
                 try:
                     user_part, pass_part = line.strip().split('passowed:', 1)
@@ -49,10 +44,9 @@ def read_accounts():
                     if username and password:
                         accounts[username] = password
                 except (ValueError, IndexError):
-                    continue # تجاهل الأسطر غير الصالحة
+                    continue
     return accounts
 
-# --- دالة مساعدة لحفظ حساب ---
 def save_account(username, password):
     accounts = read_accounts()
     accounts[username] = password
@@ -60,13 +54,12 @@ def save_account(username, password):
         for username, password in accounts.items():
             f.write(f"user: {username} passowed: {password}\n")
 
-# --- دالة تسجيل الدخول (تعمل في خيط منفصل) ---
-def login_and_get_info(email, password, verification_code=None, update=None, context=None):
-    driver = None # التأكد من تعريف driver قبل try
+# --- دالة تسجيل الدخول ---
+def login_and_get_info(email, password, verification_code=None):
+    driver = None
     try:
-        # إعدادات المتصفح للعمل على الخوادم (headless)
         options = webdriver.ChromeOptions()
-        options.add_argument("--headless=new") # استخدام الوضع الجديد والأكثر استقراراً
+        options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
@@ -77,7 +70,6 @@ def login_and_get_info(email, password, verification_code=None, update=None, con
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
 
-        # تعديل ليتوافق مع بيئة GitHub بشكل أفضل
         driver = uc.Chrome(version_main=None, options=options, use_subprocess=False)
 
         stealth(driver,
@@ -97,12 +89,11 @@ def login_and_get_info(email, password, verification_code=None, update=None, con
 
         driver.find_element(By.XPATH, "//input[contains(@placeholder, 'Password')]").send_keys(password)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        time.sleep(4) # انتظار أطول قليلاً للتحقق من أي إعادة توجيه
+        time.sleep(4)
 
-        # التحقق من وجود صفحة رمز التحقق
         if "verification" in driver.current_url:
             if not verification_code:
-                return {"status": "need_verification_code", "message": "تم إرسال رمز تحقق إلى بريدك الإلكتروني. الرجاء إدخاله."}
+                return {"status": "need_verification_code", "message": "تم إرسال رمز تحقق. الرجاء إدخاله."}
             
             code_field = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Verification code')]"))
@@ -111,11 +102,9 @@ def login_and_get_info(email, password, verification_code=None, update=None, con
             driver.find_element(By.XPATH, "//button[data-e2e='verify-button']").click()
             time.sleep(4)
 
-        # التحقق من وجود صفحة تغيير كالة المرور
         if "reset-password" in driver.current_url:
-            return {"status": "need_new_password", "message": "كلمة المرور خاطئة أو منتهية الصلاحية. يرجى تسجيل الدخول يدوياً من التطبيق لتغييرها."}
+            return {"status": "need_new_password", "message": "كلمة المرور خاطئة. يرجى تسجيل الدخول يدوياً لتغييرها."}
 
-        # إذا تم تسجيل الدخول بنجاح
         WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//div[@data-e2e='top-nav-avatar']//img"))
         ).click()
@@ -126,10 +115,10 @@ def login_and_get_info(email, password, verification_code=None, update=None, con
                 EC.presence_of_element_located((By.XPATH, "//h1[@data-e2e='user-title']"))
             ).text
             profile_info['bio'] = driver.find_element(By.XPATH, "//h2[@data-e2e='user-bio']").text
-        except: profile_info['bio'] = "لا يوجد وصف"
+        except: 
+            profile_info['bio'] = "لا يوجد وصف"
         
         try:
-            # استخدام محدد أكثر قوة لعدد المتابعين
             followers_element = driver.find_element(By.XPATH, "//a[contains(@href, '/followers')]//strong")
             profile_info['followers'] = followers_element.text
         except:
@@ -157,7 +146,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def new_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(text="أرسل لي معلومات تسجيل الدخول بصيغة:\n\n`user: اسم_المستخدم passowed: كلمة_المرور`\n\nيمكنك إرسال عدة أسطر لتسجيل دخول أكثر من حساب في نفس الوقت.")
+    await query.edit_message_text(text="أرسل معلومات تسجيل الدخول بصيغة:\n\n`user: اسم_المستخدم passowed: كلمة_المرور`\n\nيمكنك إرسال عدة أسطر لتسجيل دخول أكثر من حساب.")
     return USERNAME
 
 async def get_login_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -187,64 +176,37 @@ async def get_login_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("لم يتم العثور على بيانات صالحة. يرجى المحاولة مرة أخرى.")
         return ConversationHandler.END
 
-    await update.message.reply_text(f"تم استلام {len(login_queue)} طلب تسجيل دخول. سيتم البدء في المعالجة...")
-    
-    # بدء معالجة الطلبات في خيوط منفصلة
-    threads = []
-    for i, account in enumerate(login_queue):
-        thread = threading.Thread(target=process_login, args=(account, f"الحساب رقم {i+1}"))
-        threads.append(thread)
-        thread.start()
-        time.sleep(5) # تأخير بسيط بين كل عملية
-
-    # انتظار جميع الخيوط لتكتمل
-    for thread in threads:
-        thread.join()
-        
-    login_queue.clear()
+    # استدعاء دالة المعالجة التسلسلية
+    await process_login_queue(update, context)
     return ConversationHandler.END
 
-def process_login(account, account_name):
-    """دالة لمعالجة تسجيل الدخول في خيط منفصل."""
-    username = account['username']
-    password = account['password']
-    update = account['update']
-    context = account['context']
+async def process_login_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تعالج طلبات تسجيل الدخول بشكل تسلسلي."""
+    await update.message.reply_text(f"تم استلام {len(login_queue)} طلب. جاري البدء...")
     
-    # إرسال رسالة فورية للمستخدم
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(
-        update.message.reply_text(f"جاري محاولة تسجيل الدخول لـ {account_name}: {username}...")
-    )
-    loop.close()
-
-    result = login_and_get_info(username, password)
-    
-    # إرسال النتيجة النهائية
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    if result['status'] == 'success':
-        # حفظ الحساب تلقائياً بعد تسجيل الدخول الناجح
-        save_account(username, password)
-        info = result['info']
-        msg = (f"✅ **تم تسجيل الدخول بنجاح لـ {account_name}!**\n\n"
-               f"👤 **اسم المستخدم:** {info['username']}\n"
-               f"📝 **الوصف:** {info['bio']}\n"
-               f"👥 **المتابعون:** {info['followers']}")
-        loop.run_until_complete(
-            update.message.reply_text(msg, parse_mode='Markdown')
-        )
-    elif result['status'] == 'need_verification_code':
-        loop.run_until_complete(
-            update.message.reply_text(f"❌ {result['message']} للحساب {account_name}.")
-        )
-    else:
-        loop.run_until_complete(
-            update.message.reply_text(f"❌ {result['message']} للحساب {account_name}.")
-        )
-    loop.close()
-
+    for i, account in enumerate(login_queue):
+        username = account['username']
+        password = account['password']
+        
+        await update.message.reply_text(f"جاري معالجة الحساب رقم {i+1}: {username}...")
+        
+        result = login_and_get_info(username, password)
+        
+        if result['status'] == 'success':
+            save_account(username, password)
+            info = result['info']
+            msg = (f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
+                   f"👤 **اسم المستخدم:** {info['username']}\n"
+                   f"📝 **الوصف:** {info['bio']}\n"
+                   f"👥 **المتابعون:** {info['followers']}")
+            await update.message.reply_text(msg, parse_mode='Markdown')
+        elif result['status'] == 'need_verification_code':
+            await update.message.reply_text(f"❌ {result['message']}")
+        else:
+            await update.message.reply_text(f"❌ {result['message']}")
+            
+    login_queue.clear()
+    await update.message.reply_text("اكتملت جميع الطلبات.")
 
 async def count_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -268,7 +230,6 @@ def main() -> None:
         
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # إعادة تعريف ConversationHandler ليعمل بشكل صحيح
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(new_login_prompt, pattern='^new_login$')],
         states={
@@ -276,7 +237,7 @@ def main() -> None:
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=True,
-        per_message=False, # إصلاح التحذير
+        per_message=False, # إصلاح للتحذير
     )
 
     application.add_handler(CommandHandler("start", start))
