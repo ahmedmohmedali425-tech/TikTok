@@ -11,7 +11,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
-from webdriver_manager.chrome import ChromeDriverManager # استيراد المدير
+from webdriver_manager.chrome import ChromeDriverManager
 
 # --- إعدادات ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -29,7 +29,7 @@ ACCOUNTS_FILE = 'user.txt'
 # --- قائمة لتخزين بيانات الدخول المتعددة ---
 login_queue = []
 
-# --- دالة مساعدة لقراءة الحسابات ---
+# --- دالات مساعدة لقراءة وحفظ الحسابات ---
 def read_accounts():
     accounts = {}
     if not os.path.exists(ACCOUNTS_FILE):
@@ -47,7 +47,6 @@ def read_accounts():
                     continue
     return accounts
 
-# --- دالة مساعدة لحفظ حساب ---
 def save_account(username, password):
     accounts = read_accounts()
     accounts[username] = password
@@ -59,11 +58,10 @@ def save_account(username, password):
 def login_and_get_info(email, password, verification_code=None):
     driver = None
     try:
-        # استخدام webdriver-manager لتثبيت chromedriver تلقائياً
         service = ChromeDriverManager().install()
         options = webdriver.ChromeOptions()
         
-        # خيارات قوية لإخفاء البوت
+        # خيارات قوية جداً لإخفاء البوت
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -73,24 +71,36 @@ def login_and_get_info(email, password, verification_code=None):
         options.add_argument("--disable-software-rasterizer")
         options.add_argument("--disable-extensions")
         options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--disable-plugins-discovery")
+        options.add_argument("--disable-default-apps")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
+        options.add_experimental_option('prefs', {
+            'credentials_enable_service': False,
+            'profile.password_manager_enabled': False
+        })
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
         driver = webdriver.Chrome(service=service, options=options)
         
-        # تنفيذ سكربت لخفاء البوت
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        stealth(driver,
+            languages=["en-US", "en"],
+            vendor="Google Inc.",
+            platform="Win32",
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True,
+        )
 
         driver.get("https://www.tiktok.com/login/phone-or-email/email")
         
-        WebDriverWait(driver, 15).until(
+        WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Email or username')]"))
         ).send_keys(email)
 
         driver.find_element(By.XPATH, "//input[contains(@placeholder, 'Password')]").send_keys(password)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        time.sleep(4)
+        time.sleep(5) # انتظار أطول قليلاً
 
         if "verification" in driver.current_url:
             if not verification_code:
@@ -129,10 +139,11 @@ def login_and_get_info(email, password, verification_code=None):
         return {"status": "success", "info": profile_info}
 
     except Exception as e:
+        # طباعة الخطأ الكامل في السجلات للتشخيص
+        logger.error(f"Error during login for {email}: {e}", exc_info=True)
         if driver:
             driver.quit()
-        logger.error(f"Error during login for {email}: {e}")
-        return {"status": "failed", "message": f"فشل تسجيل الدخول: {str(e)}"}
+        return {"status": "failed", "message": f"فشل تسجيل الدخول. قد يكون الموقع قد اكتشف البوت."}
 
 # --- معالجات الأوامر والرسائل ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -147,7 +158,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def new_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(text="أرسل لي معلومات تسجيل الدخول بصيغة:\n\n`user: اسم_المستخدم passowed: كلمة_المرور`\n\nيمكنك إرسال عدة أسطر لتسجيل دخول أكثر من حساب في نفس الوقت.")
+    await query.edit_message_text(text="أرسل معلومات تسجيل الدخول بصيغة:\n\n`user: اسم_المستخدم passowed: كلمة_المرور`\n\nيمكنك إرسال عدة أسطر لتسجيل دخول أكثر من حساب.")
     return USERNAME
 
 async def get_login_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -177,9 +188,8 @@ async def get_login_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("لم يتم العثور على بيانات صالحة. يرجى المحاولة مرة أخرى.")
         return ConversationHandler.END
 
-    await update.message.reply_text(f"تم استلام {len(login_queue)} طلب تسجيل دخول. سيتم البدء في المعالجة...")
+    await update.message.reply_text(f"تم استلام {len(login_queue)} طلب. جاري البدء...")
     
-    # معالجة الطلبات بشكل تسلسلي (واحد تلو الآخر)
     await process_login_queue(update, context)
     return ConversationHandler.END
 
