@@ -1,0 +1,6 @@
+your-tiktok-bot-repo/
+├── main.py              # الكود الذي أرسلته
+├── user.txt
+└── .github/
+    └── workflows/
+        └── run-bot.yml  # سنقوم بإنشاء هذا الملف الآن
