@@ -54,19 +54,24 @@ def login_and_get_info(email, password, verification_code=None):
     try:
         # إعدادات المتصفح للعمل على الخوادم (headless)
         options = webdriver.ChromeOptions()
-        options.add_argument("--headless")
+        options.add_argument("--headless=new") # استخدام الوضع الجديد والأكثر استقراراً
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
+        options.add_argument("--disable-setuid-sandbox")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--disable-extensions")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
 
-        driver = uc.Chrome(use_subprocess=True, headless=True, options=options)
+        # تعديل ليتوافق مع بيئة GitHub بشكل أفضل
+        driver = uc.Chrome(version_main=None, options=options, use_subprocess=False)
+
         stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
-            platform="Linux", # تحديد النظام ليتوافق مع Render
+            platform="Linux", # تم تصحيح الخطأ الإملائي
             webgl_vendor="Intel Inc.",
             renderer="Intel Iris OpenGL Engine",
             fix_hairline=True,
@@ -74,13 +79,13 @@ def login_and_get_info(email, password, verification_code=None):
 
         driver.get("https://www.tiktok.com/login/phone-or-email/email")
         
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Email or username']"))
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder*='Email or username']"))
         ).send_keys(email)
 
-        driver.find_element(By.XPATH, "//input[@placeholder='Password']").send_keys(password)
-        driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        time.sleep(3) # انتظار قصير للتحقق
+        driver.find_element(By.CSS_SELECTOR, "input[placeholder*='Password']").send_keys(password)
+        driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
+        time.sleep(4) # انتظار أطول قليلاً للتحقق من أي إعادة توجيه
 
         # التحقق من وجود صفحة رمز التحقق
         if "verification" in driver.current_url:
@@ -88,33 +93,33 @@ def login_and_get_info(email, password, verification_code=None):
                 return {"status": "need_verification_code", "message": "تم إرسال رمز تحقق إلى بريدك الإلكتروني. الرجاء إدخاله."}
             
             code_field = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Verification code']"))
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder*='Verification code']"))
             )
             code_field.send_keys(verification_code)
-            driver.find_element(By.XPATH, "//button[contains(., 'Verify')]").click()
-            time.sleep(3)
+            driver.find_element(By.CSS_SELECTOR, "button[data-e2e='verify-button']").click()
+            time.sleep(4)
 
         # التحقق من وجود صفحة تغيير كلمة المرور
         if "reset-password" in driver.current_url:
-            # في بيئة تلقائية، تغيير كلمة المرور معقد جداً وغير موثوق
             return {"status": "need_new_password", "message": "كلمة المرور خاطئة أو منتهية الصلاحية. يرجى تسجيل الدخول يدوياً من التطبيق لتغييرها."}
 
         # إذا تم تسجيل الدخول بنجاح
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.XPATH, "//div[@data-e2e='top-nav-avatar']//img"))
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-e2e='top-nav-avatar'] img"))
         ).click()
         
         profile_info = {}
         try:
             profile_info['username'] = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//h1[@data-e2e='user-title']"))
+                EC.presence_of_element_located((By.CSS_SELECTOR, "h1[data-e2e='user-title']"))
             ).text
-            profile_info['bio'] = driver.find_element(By.XPATH, "//h2[@data-e2e='user-bio']").text
+            profile_info['bio'] = driver.find_element(By.CSS_SELECTOR, "h2[data-e2e='user-bio']").text
         except: profile_info['bio'] = "لا يوجد وصف"
         
         try:
-            followers_text = driver.find_element(By.XPATH, "//a[@href='/foryou?lang=ar']/following-sibling::*[1]").text
-            profile_info['followers'] = followers_text
+            # استخدام محدد أكثر قوة لعدد المتابعين
+            followers_element = driver.find_element(By.CSS_SELECTOR, "a[href*='/followers'] strong")
+            profile_info['followers'] = followers_element.text
         except:
             profile_info['followers'] = "غير متوفر"
 
@@ -127,7 +132,7 @@ def login_and_get_info(email, password, verification_code=None):
         logger.error(f"Error during login for {email}: {e}")
         return {"status": "failed", "message": f"فشل تسجيل الدخول: {str(e)}"}
 
-# --- معالجات الأوامر والرسائل (بقية الكود كما هو) ---
+# --- معالجات الأوامر والرسائل ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [
         [InlineKeyboardButton("تسجيل دخول جديد", callback_data='new_login')],
