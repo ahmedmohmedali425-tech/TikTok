@@ -14,8 +14,8 @@ import undetected_chromedriver as uc
 
 # --- إعدادات ---
 # قراءة التوكن من متغير بيئي لأمان أكبر
-TELEGRAM_TOKEN = os.environ.get("8555202205:AAHBJuWxjhJPXdQhUUMaGoZtcbAyHBAjgaY")
-
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+print(f"DEBUG: The value of TELEGRAM_TOKEN is: '{TELEGRAM_TOKEN}'")
 # تفعيل السجلات لرؤية الأخطاء
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -267,4 +267,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
