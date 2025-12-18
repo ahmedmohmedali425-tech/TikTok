@@ -2,10 +2,6 @@ setuptools
 python-telegram-bot
 selenium
 undetected-chromedriver
-selenium-stealth
 webdriver_manager
-python-telegram-bot
-selenium
-undetected-chromedriver
 selenium-stealth
 python-dotenv
