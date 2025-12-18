@@ -11,6 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 import undetected_chromedriver as uc
+import threading
 
 # --- إعدادات ---
 # قراءة التوكن من متغير بيئي لأمان أكبر
@@ -28,6 +29,9 @@ logger = logging.getLogger(__name__)
 # --- ملف لحفظ الحسابات ---
 ACCOUNTS_FILE = 'user.txt'
 
+# --- قائمة لتخزين بيانات الدخول المتعددة ---
+login_queue = []
+
 # --- دالة مساعدة لقراءة الحسابات ---
 def read_accounts():
     accounts = {}
@@ -35,26 +39,32 @@ def read_accounts():
         return accounts
     with open(ACCOUNTS_FILE, 'r', encoding='utf-8') as f:
         for line in f:
-            if ':' in line:
-                email, password = line.strip().split(':', 1)
-                accounts[email] = password
+            # قراءة الصيغة الجديدة: user: ... passowed: ...
+            if 'user:' in line and 'passowed:' in line:
+                try:
+                    user_part, pass_part = line.strip().split('passowed:', 1)
+                    username = user_part.split('user:', 1)[1].strip()
+                    password = pass_part.strip()
+                    if username and password:
+                        accounts[username] = password
+                except (ValueError, IndexError):
+                    continue # تجاهل الأسطر غير الصالحة
     return accounts
 
 # --- دالة مساعدة لحفظ حساب ---
-def save_account(email, password):
+def save_account(username, password):
     accounts = read_accounts()
-    accounts[email] = password
+    accounts[username] = password
     with open(ACCOUNTS_FILE, 'w', encoding='utf-8') as f:
-        for email, password in accounts.items():
-            f.write(f"{email}:{password}\n")
+        for username, password in accounts.items():
+            f.write(f"user: {username} passowed: {password}\n")
 
 # --- دالة تسجيل الدخول (تعمل في خيط منفصل) ---
-def login_and_get_info(email, password, verification_code=None):
-    driver = None # التأكد من تعريف driver قبل try
+def login_and_get_info(email, password, verification_code=None, update=None, context=None):
+    driver = None
     try:
-        # إعدادات المتصفح للعمل على الخوادم (headless)
         options = webdriver.ChromeOptions()
-        options.add_argument("--headless=new") # استخدام الوضع الجديد والأكثر استقراراً
+        options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
@@ -65,7 +75,6 @@ def login_and_get_info(email, password, verification_code=None):
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
 
-        # تعديل ليتوافق مع بيئة GitHub بشكل أفضل
         driver = uc.Chrome(version_main=None, options=options, use_subprocess=False)
 
         stealth(driver,
@@ -85,9 +94,8 @@ def login_and_get_info(email, password, verification_code=None):
 
         driver.find_element(By.XPATH, "//input[contains(@placeholder, 'Password')]").send_keys(password)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        time.sleep(4) # انتظار أطول قليلاً للتحقق من أي إعادة توجيه
+        time.sleep(4)
 
-        # التحقق من وجود صفحة رمز التحقق
         if "verification" in driver.current_url:
             if not verification_code:
                 return {"status": "need_verification_code", "message": "تم إرسال رمز تحقق إلى بريدك الإلكتروني. الرجاء إدخاله."}
@@ -96,14 +104,12 @@ def login_and_get_info(email, password, verification_code=None):
                 EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Verification code')]"))
             )
             code_field.send_keys(verification_code)
-            driver.find_element(By.XPATH, "//button[contains(., 'Verify')]").click()
+            driver.find_element(By.XPATH, "//button[data-e2e='verify-button']").click()
             time.sleep(4)
 
-        # التحقق من وجود صفحة تغيير كلمة المرور
         if "reset-password" in driver.current_url:
             return {"status": "need_new_password", "message": "كلمة المرور خاطئة أو منتهية الصلاحية. يرجى تسجيل الدخول يدوياً من التطبيق لتغييرها."}
 
-        # إذا تم تسجيل الدخول بنجاح
         WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//div[@data-e2e='top-nav-avatar']//img"))
         ).click()
@@ -117,7 +123,6 @@ def login_and_get_info(email, password, verification_code=None):
         except: profile_info['bio'] = "لا يوجد وصف"
         
         try:
-            # استخدام محدد أكثر قوة لعدد المتابعين
             followers_element = driver.find_element(By.XPATH, "//a[contains(@href, '/followers')]//strong")
             profile_info['followers'] = followers_element.text
         except:
@@ -136,112 +141,112 @@ def login_and_get_info(email, password, verification_code=None):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("تسجيل دخول جديد", callback_data='new_login')],
-        [InlineKeyboardButton("تسجيل الدخول بحساب محفوظ", callback_data='saved_login')],
         [InlineKeyboardButton("عدد الحسابات المسجلة", callback_data='count_accounts')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # استخدام reply_markup مع edit_message_text لتحديث الرسالة
     await update.message.reply_text("أهلاً بك! اختر ما تريد فعله:", reply_markup=reply_markup)
+    return ConversationHandler.END
 
-async def handle_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def new_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer() # الرد على الاستدعاء لإزالة حالة الانتظار
+    await query.answer()
+    await query.edit_message_text(text="أرسل لي معلومات تسجيل الدخول بصيغة:\n\n`user: اسم_المستخدم passowed: كلمة_المرور`\n\nيمكنك إرسال عدة أسطر لتسجيل دخول أكثر من حساب في نفس الوقت.")
+    return USERNAME
 
-    if query.data == 'new_login':
-        await query.edit_message_text(text="أرسل لي بريدك الإلكتروني أو اسم المستخدم:")
+async def get_login_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text:
+        await update.message.reply_text("الرجاء إرسال المعلومات بصيغة صحيحة.")
         return USERNAME
-    elif query.data == 'saved_login':
-        accounts = read_accounts()
-        if not accounts:
-            await query.edit_message_text(text="لا توجد حسابات محفوظة حالياً.")
-            return ConversationHandler.END
-        
-        keyboard = [[InlineKeyboardButton(email, callback_data=f'login_{email}')] for email in accounts.keys()]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text="اختر الحساب الذي تريد تسجيل الدخول به:", reply_markup=reply_markup)
-        return ConversationHandler.END
-    elif query.data == 'count_accounts':
-        accounts = read_accounts()
-        count = len(accounts)
-        await query.edit_message_text(text=f"يوجد {count} حساب مسجل في القائمة. البوت يعمل بشكل صحيح وهو نشط.")
-        return ConversationHandler.END
-    elif query.data.startswith('login_'):
-        email = query.data.split('_', 1)[1]
-        accounts = read_accounts()
-        password = accounts.get(email)
-        
-        if not password:
-            await query.edit_message_text(text="حدث خطأ، لم يتم العثور على كلمة المرور لهذا الحساب.")
-            return ConversationHandler.END
 
-        await query.edit_message_text(text=f"جاري تسجيل الدخول للحساب: {email}...")
-        result = login_and_get_info(email, password)
-        
-        if result['status'] == 'success':
-            info = result['info']
-            msg = (f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
-                   f"👤 **اسم المستخدم:** {info['username']}\n"
-                   f"📝 **الوصف:** {info['bio']}\n"
-                   f"👥 **المتابعون:** {info['followers']}")
-            await query.edit_message_text(text=msg, parse_mode='Markdown')
+    lines = text.split('\n')
+    for line in lines:
+        line = line.strip()
+        if 'user:' in line and 'passowed:' in line:
+            try:
+                user_part, pass_part = line.split('passowed:', 1)
+                username = user_part.split('user:', 1)[1].strip()
+                password = pass_part.strip()
+                if username and password:
+                    login_queue.append({'username': username, 'password': password, 'update': update, 'context': context})
+            except (ValueError, IndexError):
+                await update.message.reply_text(f"خطأ في الصيغة للسطر: {line}. تم تجاهله.")
+                continue
         else:
-            await query.edit_message_text(text=f"❌ فشل تسجيل الدخول: {result['message']}")
-        
+            await update.message.reply_text(f"خطأ في الصيغة للسطر: {line}. تم تجاهله.")
+            continue
+    
+    if not login_queue:
+        await update.message.reply_text("لم يتم العثور على بيانات صالحة. يرجى المحاولة مرة أخرى.")
         return ConversationHandler.END
 
-async def get_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['username'] = update.message.text
-    await update.message.reply_text("ممتاز. الآن أرسل لي كلمة المرور:")
-    return PASSWORD
+    await update.message.reply_text(f"تم استلام {len(login_queue)} طلب تسجيل دخول. سيتم البدء في المعالجة...")
+    
+    # بدء معالجة الطلبات في خيوط منفصلة
+    threads = []
+    for i, account in enumerate(login_queue):
+        thread = threading.Thread(target=process_login, args=(account, f"الحساب رقم {i+1}"))
+        threads.append(thread)
+        thread.start()
+        time.sleep(5) # تأخير بسيط بين كل عملية
 
-async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['password'] = update.message.text
-    username = context.user_data['username']
-    password = context.user_data['password']
+    # انتظار جميع الخيوط لتكتمل
+    for thread in threads:
+        thread.join()
+        
+    login_queue.clear()
+    return ConversationHandler.END
+
+def process_login(account, account_name):
+    """دالة لمعالجة تسجيل الدخول في خيط منفصل."""
+    username = account['username']
+    password = account['password']
+    update = account['update']
+    context = account['context']
     
-    await update.message.reply_text("جاري محاولة تسجيل الدخول... قد يستغرق هذا بعض الوقت.")
-    
+    # إرسال رسالة فورية للمستخدم
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(
+        update.message.reply_text(f"جاري محاولة تسجيل الدخول لـ {account_name}: {username}...")
+    )
+    loop.close()
+
     result = login_and_get_info(username, password)
     
+    # إرسال النتيجة النهائية
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     if result['status'] == 'success':
-        # حفظ الحساب تلقائياً بعد تسجيل الدخول الناجح
         save_account(username, password)
         info = result['info']
-        msg = (f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
+        msg = (f"✅ **تم تسجيل الدخول بنجاح لـ {account_name}!**\n\n"
                f"👤 **اسم المستخدم:** {info['username']}\n"
                f"📝 **الوصف:** {info['bio']}\n"
                f"👥 **المتابعون:** {info['followers']}")
-        await update.message.reply_text(msg, parse_mode='Markdown')
+        loop.run_until_complete(
+            update.message.reply_text(msg, parse_mode='Markdown')
+        )
     elif result['status'] == 'need_verification_code':
-        await update.message.reply_text(result['message'])
-        return VERIFICATION_CODE
+        loop.run_until_complete(
+            update.message.reply_text(f"❌ {result['message']} للحساب {account_name}.")
+        )
     else:
-        await update.message.reply_text(f"❌ {result['message']}")
-        
-    return ConversationHandler.END
+        loop.run_until_complete(
+            update.message.reply_text(f"❌ {result['message']} للحساب {account_name}.")
+        )
+    loop.close()
 
-async def get_verification_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['verification_code'] = update.message.text
-    username = context.user_data['username']
-    password = context.user_data['password']
-    code = context.user_data['verification_code']
-    
-    await update.message.reply_text("جاري التحقق من الرمز...")
-    result = login_and_get_info(username, password, verification_code=code)
-    
-    if result['status'] == 'success':
-        # حفظ الحساب تلقائياً بعد تسجيل الدخول الناجح
-        save_account(username, password)
-        info = result['info']
-        msg = (f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
-               f"👤 **اسم المستخدم:** {info['username']}\n"
-               f"📝 **الوصف:** {info['bio']}\n"
-               f"👥 **المتابعون:** {info['followers']}")
-        await update.message.reply_text(msg, parse_mode='Markdown')
+
+async def count_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    accounts = read_accounts()
+    count = len(accounts)
+    if count == 0:
+        await query.edit_message_text(text="لا توجد حسابات مسجلة حالياً.")
     else:
-        await update.message.reply_text(f"❌ فشل التحقق: {result['message']}")
-        
-    return ConversationHandler.END
+        await query.edit_message_text(text=f"يوجد {count} حساب مسجل في القائمة. البوت يعمل بشكل صحيح وهو نشط.")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("تم إلغاء العملية.")
@@ -254,13 +259,10 @@ def main() -> None:
         
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # إعادة تعريف ConversationHandler ليعمل بشكل صحيح
     conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(handle_menu_choice, pattern='^(new_login|saved_login|count_accounts|login_)')],
+        entry_points=[CallbackQueryHandler(new_login_prompt, pattern='^new_login$')],
         states={
-            USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_username)],
-            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_password)],
-            VERIFICATION_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_verification_code)],
+            USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_login_info)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=True,
@@ -268,6 +270,7 @@ def main() -> None:
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(count_accounts, pattern='^count_accounts$'))
     
     application.run_polling()
 
