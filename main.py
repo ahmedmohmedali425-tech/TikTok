@@ -5,8 +5,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium_stealth import stealth
-import undetected_chromedriver as uc
+# لم نعد بحاجة إلى undetected_chromedriver أو selenium_stealth
 
 # --- إعدادات عامة ---
 timers = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
@@ -19,12 +18,10 @@ def read_accounts(filename="user.txt"):
         with open(filename, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             for i in range(0, len(lines), 2):
-                # التأكد من وجود سطر يوزر نيم وباسورد
                 if i + 1 < len(lines):
                     username_line = lines[i].strip()
                     password_line = lines[i+1].strip()
                     
-                    # استخلاص القيم بعد النقطتين
                     if "username:" in username_line and "password:" in password_line:
                         username = username_line.split("username:", 1)[1].strip()
                         password = password_line.split("password:", 1)[1].strip()
@@ -46,26 +43,27 @@ def login_to_tiktok(username, password):
     """
     print(f"\n[بدء] محاولة تسجيل الدخول للحساب: {username}")
 
-    # إعداد المتصفح للعمل بدون واجهة رسومية (headless) في GitHub Actions
+    # إعداد المتصفح باستخدام selenium القياسي مع خيارات لإخفاء البوت
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")  # تشغيل المتصفح في الخلفية
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    # تم حذف السطرين التاليين لأنهما يسببان المشكلة
-    # options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    # options.add_experimental_option('useAutomationExtension', False)
     
-    driver = uc.Chrome(use_subprocess=True, headless=True, options=options)
+    # خيارات قوية لإخفاء البوت
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-plugins")
+    options.add_argument("--disable-images")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-    # إخفاء البوت
-    stealth(driver,
-            languages=["en-US", "en"],
-            vendor="Google Inc.",
-            platform="Linux", # تحديد النظام الأساسي ليتوافق مع خادم GitHub
-            webgl_vendor="Intel Inc.",
-            renderer="Intel Iris OpenGL Engine",
-            fix_hairline=True,
-            )
+    driver = webdriver.Chrome(options=options)
+
+    # تنفيذ سكربت لإزالة خاصية webdriver
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
     try:
         start_time = time.time()
@@ -131,7 +129,6 @@ def login_to_tiktok(username, password):
 
 # --- نقطة بداية تشغيل البرنامج ---
 if __name__ == "__main__":
-    # قراءة الحسابات من ملف user.txt
     accounts_to_login = read_accounts("user.txt")
     
     if not accounts_to_login:
