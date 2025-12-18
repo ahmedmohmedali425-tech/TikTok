@@ -1,4 +1,3 @@
-
 import os
 import telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -11,7 +10,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
-import undetected_chromedriver as uc
 
 # --- إعدادات ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -59,6 +57,7 @@ def login_and_get_info(email, password, verification_code=None):
     driver = None
     try:
         options = webdriver.ChromeOptions()
+        # خيارات قوية لإخفاء البوت
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -67,19 +66,18 @@ def login_and_get_info(email, password, verification_code=None):
         options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--disable-software-rasterizer")
         options.add_argument("--disable-extensions")
+        options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
+        
+        # تعديل وكيل المستخدم ليتوافق مع بيئة GitHub
+        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-        driver = uc.Chrome(version_main=None, options=options, use_subprocess=False)
-
-        stealth(driver,
-            languages=["en-US", "en"],
-            vendor="Google Inc.",
-            platform="Linux",
-            webgl_vendor="Intel Inc.",
-            renderer="Intel Iris OpenGL Engine",
-            fix_hairline=True,
-        )
+        # استخدام Selenium القياسي
+        driver = webdriver.Chrome(options=options)
+        
+        # تنفيذ سكربت لخفاء البوت
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
         driver.get("https://www.tiktok.com/login/phone-or-email/email")
         
@@ -237,7 +235,6 @@ def main() -> None:
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=True,
-        per_message=False, # إصلاح للتحذير
     )
 
     application.add_handler(CommandHandler("start", start))
