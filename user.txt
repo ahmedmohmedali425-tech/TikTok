@@ -1,7 +1,8 @@
-username: darkhouda3@@
-password: houdadark200
+username: 
+password: 
 
 e.g.,
-username: example@gmail.com
+username: houdadark200
 
-password: example
+password: darkhouda3@@
+
