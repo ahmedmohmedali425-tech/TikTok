@@ -1,9 +1,5 @@
 username: houdadark200
 password: darkhouda3@@
 
-e.g.,
-username: houdadark200
-
-password: darkhouda3@@
 
 
