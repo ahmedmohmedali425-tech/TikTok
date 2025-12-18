@@ -15,7 +15,7 @@ import undetected_chromedriver as uc
 # --- إعدادات ---
 # قراءة التوكن من متغير بيئي لأمان أكبر
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-print(f"DEBUG: The value of TELEGRAM_TOKEN is: '{TELEGRAM_TOKEN}'")
+
 # تفعيل السجلات لرؤية الأخطاء
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -71,7 +71,7 @@ def login_and_get_info(email, password, verification_code=None):
         stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
-            platform="Linux", # تم تصحيح الخطأ الإملائي
+            platform="Linux", # تحديد النظام ليتوافق مع Render
             webgl_vendor="Intel Inc.",
             renderer="Intel Iris OpenGL Engine",
             fix_hairline=True,
@@ -80,12 +80,12 @@ def login_and_get_info(email, password, verification_code=None):
         driver.get("https://www.tiktok.com/login/phone-or-email/email")
         
         WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder*='Email or username']"))
+            EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Email or username')]"))
         ).send_keys(email)
 
-        driver.find_element(By.CSS_SELECTOR, "input[placeholder*='Password']").send_keys(password)
-        driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-        time.sleep(4) # انتظار أطول قليلاً للتحقق من أي إعادة توجيه
+        driver.find_element(By.XPATH, "//input[contains(@placeholder, 'Password')]").send_keys(password)
+        driver.find_element(By.XPATH, "//button[@type='submit']").click()
+        time.sleep(4) # انتظار قصير للتحقق
 
         # التحقق من وجود صفحة رمز التحقق
         if "verification" in driver.current_url:
@@ -93,32 +93,33 @@ def login_and_get_info(email, password, verification_code=None):
                 return {"status": "need_verification_code", "message": "تم إرسال رمز تحقق إلى بريدك الإلكتروني. الرجاء إدخاله."}
             
             code_field = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder*='Verification code']"))
+                EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Verification code')]"))
             )
             code_field.send_keys(verification_code)
-            driver.find_element(By.CSS_SELECTOR, "button[data-e2e='verify-button']").click()
+            driver.find_element(By.XPATH, "//button[contains(., 'Verify')]").click()
             time.sleep(4)
 
         # التحقق من وجود صفحة تغيير كلمة المرور
         if "reset-password" in driver.current_url:
+            # في بيئة تلقائية، تغيير كلمة المرور معقد جداً وغير موثوق
             return {"status": "need_new_password", "message": "كلمة المرور خاطئة أو منتهية الصلاحية. يرجى تسجيل الدخول يدوياً من التطبيق لتغييرها."}
 
         # إذا تم تسجيل الدخول بنجاح
         WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-e2e='top-nav-avatar'] img"))
+            EC.presence_of_element_located((By.XPATH, "//div[@data-e2e='top-nav-avatar']//img"))
         ).click()
         
         profile_info = {}
         try:
             profile_info['username'] = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "h1[data-e2e='user-title']"))
+                EC.presence_of_element_located((By.XPATH, "//h1[@data-e2e='user-title']"))
             ).text
-            profile_info['bio'] = driver.find_element(By.CSS_SELECTOR, "h2[data-e2e='user-bio']").text
+            profile_info['bio'] = driver.find_element(By.XPATH, "//h2[@data-e2e='user-bio']").text
         except: profile_info['bio'] = "لا يوجد وصف"
         
         try:
             # استخدام محدد أكثر قوة لعدد المتابعين
-            followers_element = driver.find_element(By.CSS_SELECTOR, "a[href*='/followers'] strong")
+            followers_element = driver.find_element(By.XPATH, "//a[contains(@href, '/followers')]//strong")
             profile_info['followers'] = followers_element.text
         except:
             profile_info['followers'] = "غير متوفر"
@@ -267,5 +268,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
