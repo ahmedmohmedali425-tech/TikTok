@@ -51,8 +51,9 @@ def login_to_tiktok(username, password):
     options.add_argument("--headless")  # تشغيل المتصفح في الخلفية
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
+    # تم حذف السطرين التاليين لأنهما يسببان المشكلة
+    # options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    # options.add_experimental_option('useAutomationExtension', False)
     
     driver = uc.Chrome(use_subprocess=True, headless=True, options=options)
 
