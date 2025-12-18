@@ -11,6 +11,29 @@ import undetected_chromedriver as uc
 # --- إعدادات عامة ---
 timers = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
+# --- دالة لقراءة الحسابات من ملف user.txt ---
+def read_accounts(filename="user.txt"):
+    """تقرأ الحسابات من ملف نصي وتعيدها كقائمة."""
+    accounts = []
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            for i in range(0, len(lines), 2):
+                # التأكد من وجود سطر يوزر نيم وباسورد
+                if i + 1 < len(lines):
+                    username_line = lines[i].strip()
+                    password_line = lines[i+1].strip()
+                    
+                    # استخلاص القيم بعد النقطتين
+                    if "username:" in username_line and "password:" in password_line:
+                        username = username_line.split("username:", 1)[1].strip()
+                        password = password_line.split("password:", 1)[1].strip()
+                        accounts.append({"username": username, "password": password})
+    except FileNotFoundError:
+        print(f"خطأ: ملف {filename} غير موجود. تأكد من وجود الملف في المستودع.")
+        return []
+    return accounts
+
 # --- دالة مساعدة لإنشاء تأخير عشوائي ---
 def sleeper():
     """تنشئ تأخيراً زمنياً قصيراً وعشوائياً لمحاكاة السلوك البشري."""
@@ -107,26 +130,15 @@ def login_to_tiktok(username, password):
 
 # --- نقطة بداية تشغيل البرنامج ---
 if __name__ == "__main__":
-    # قراءة الحسابات من متغيرات البيئة (GitHub Secrets)
-    accounts_str = os.environ.get("TIKTOK_ACCOUNTS")
-    if not accounts_str:
-        print("خطأ: لم يتم العثور على متغير TIKTOK_ACCOUNTS.")
+    # قراءة الحسابات من ملف user.txt
+    accounts_to_login = read_accounts("user.txt")
+    
+    if not accounts_to_login:
+        print("لم يتم العثور على حسابات صالحة في ملف user.txt. الرجاء التحقق من الملف.")
     else:
-        # تحويل النص من الـ Secret إلى قائمة من الحسابات
-        accounts_list = [acc.strip() for acc in accounts_str.split('\n') if acc.strip()]
+        print(f"تم العثور على {len(accounts_to_login)} حساباً. بدء المعالجة المتسلسلة...")
         
-        print(f"تم العثور على {len(accounts_list)} حساباً. بدء المعالجة المتسلسلة...")
-        
-        for account_line in accounts_list:
-            try:
-                # تقسيم السطر إلى يوزر نيم وباسورد
-                username, password = account_line.split(':', 1)
-                username = username.strip()
-                password = password.strip()
-                login_to_tiktok(username, password)
-            except ValueError:
-                print(f"[خطأ] تنسيق السطر التالي غير صحيح: '{account_line}'. يجب أن يكون 'username:password'.")
-            except Exception as e:
-                print(f"[خطأ عام] أثناء معالجة السطر '{account_line}': {e}")
+        for account in accounts_to_login:
+            login_to_tiktok(account['username'], account['password'])
 
         print("\nاكتملت جميع محاولات تسجيل الدخول.")
