@@ -5,13 +5,14 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 import time
 import random
 import logging
+import asyncio
+import threading
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 import undetected_chromedriver as uc
-import threading
 
 # --- إعدادات ---
 # قراءة التوكن من متغير بيئي لأمان أكبر
@@ -61,10 +62,11 @@ def save_account(username, password):
 
 # --- دالة تسجيل الدخول (تعمل في خيط منفصل) ---
 def login_and_get_info(email, password, verification_code=None, update=None, context=None):
-    driver = None
+    driver = None # التأكد من تعريف driver قبل try
     try:
+        # إعدادات المتصفح للعمل على الخوادم (headless)
         options = webdriver.ChromeOptions()
-        options.add_argument("--headless=new")
+        options.add_argument("--headless=new") # استخدام الوضع الجديد والأكثر استقراراً
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
@@ -75,6 +77,7 @@ def login_and_get_info(email, password, verification_code=None, update=None, con
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
 
+        # تعديل ليتوافق مع بيئة GitHub بشكل أفضل
         driver = uc.Chrome(version_main=None, options=options, use_subprocess=False)
 
         stealth(driver,
@@ -94,8 +97,9 @@ def login_and_get_info(email, password, verification_code=None, update=None, con
 
         driver.find_element(By.XPATH, "//input[contains(@placeholder, 'Password')]").send_keys(password)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        time.sleep(4)
+        time.sleep(4) # انتظار أطول قليلاً للتحقق من أي إعادة توجيه
 
+        # التحقق من وجود صفحة رمز التحقق
         if "verification" in driver.current_url:
             if not verification_code:
                 return {"status": "need_verification_code", "message": "تم إرسال رمز تحقق إلى بريدك الإلكتروني. الرجاء إدخاله."}
@@ -107,9 +111,11 @@ def login_and_get_info(email, password, verification_code=None, update=None, con
             driver.find_element(By.XPATH, "//button[data-e2e='verify-button']").click()
             time.sleep(4)
 
+        # التحقق من وجود صفحة تغيير كالة المرور
         if "reset-password" in driver.current_url:
             return {"status": "need_new_password", "message": "كلمة المرور خاطئة أو منتهية الصلاحية. يرجى تسجيل الدخول يدوياً من التطبيق لتغييرها."}
 
+        # إذا تم تسجيل الدخول بنجاح
         WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//div[@data-e2e='top-nav-avatar']//img"))
         ).click()
@@ -123,6 +129,7 @@ def login_and_get_info(email, password, verification_code=None, update=None, con
         except: profile_info['bio'] = "لا يوجد وصف"
         
         try:
+            # استخدام محدد أكثر قوة لعدد المتابعين
             followers_element = driver.find_element(By.XPATH, "//a[contains(@href, '/followers')]//strong")
             profile_info['followers'] = followers_element.text
         except:
@@ -218,6 +225,7 @@ def process_login(account, account_name):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     if result['status'] == 'success':
+        # حفظ الحساب تلقائياً بعد تسجيل الدخول الناجح
         save_account(username, password)
         info = result['info']
         msg = (f"✅ **تم تسجيل الدخول بنجاح لـ {account_name}!**\n\n"
@@ -247,6 +255,7 @@ async def count_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text="لا توجد حسابات مسجلة حالياً.")
     else:
         await query.edit_message_text(text=f"يوجد {count} حساب مسجل في القائمة. البوت يعمل بشكل صحيح وهو نشط.")
+    return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("تم إلغاء العملية.")
@@ -259,6 +268,7 @@ def main() -> None:
         
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+    # إعادة تعريف ConversationHandler ليعمل بشكل صحيح
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(new_login_prompt, pattern='^new_login$')],
         states={
@@ -266,6 +276,7 @@ def main() -> None:
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=True,
+        per_message=False, # إصلاح التحذير
     )
 
     application.add_handler(CommandHandler("start", start))
