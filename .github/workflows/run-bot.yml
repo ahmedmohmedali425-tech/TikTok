@@ -1,41 +1,24 @@
-name: Run TikTok Login Bot
+name: Run Telegram Bot
 
 on:
-  workflow_dispatch: # للسماح بالتشغيل اليدوي
+  # تشغيل البوت يدوياً بالضغط على زر
+  workflow_dispatch:
+  # إعادة تشغيل البوت تلقائياً إذا توقف لأي سبب (كل 10 دقائق)
+  schedule:
+    - cron: '*/10 * * * *'
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  run-bot:
+    # تحديد أن المهمة يجب أن تعمل على الـ Runner الذي أعددناه
+    runs-on: self-hosted
 
     steps:
-      # الخطوة 1: سحب الكود وملف user.txt من المستودع
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # الخطوة 2: تثبيت Python
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      # الخطوة 3: تثبيت المتطلبات (selenium و webdriver-manager)
-      - name: Install dependencies
+      - name: Run Telegram Bot
+        env:
+          # تمرير التوكن إلى الكود كمتغير بيئي
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         run: |
-          python -m pip install --upgrade pip
-          pip install selenium webdriver-manager
-
-      # الخطوة 4: تثبيت المتصفح كروم و Xvfb فقط
-      - name: Install Chrome and Xvfb
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
-          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
-
-      # الخطوة 5: تشغيل الكود
-      - name: Run the bot
-        run: |
-          # تشغيل Xvfb في الخلفية ثم تشغيل الكود
-          xvfb-run -a python main.py
+          python bot.py
