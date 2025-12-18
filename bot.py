@@ -68,32 +68,14 @@ def save_account(username, password):
 def login_and_get_info(email, password, verification_code=None, update=None, context=None):
     driver = None
     try:
-        options = webdriver.ChromeOptions()
-        
-        # --- خيارات قوية لإخفاء البوت ---
+        # --- إعدادات خفيفة ---
+        options = uc.ChromeOptions()
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
-        options.add_argument("--disable-setuid-sandbox")
-        options.add_argument("--disable-software-rasterizer")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--disable-plugins-discovery")
-        options.add_argument("--disable-default-apps")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
-        options.add_experimental_option('prefs', {
-            'credentials_enable_service': False,
-            'profile.password_manager_enabled': False
-        })
-
-        # --- تغيير الـ User-Agent بشكل دوري ---
-        random_user_agent = random.choice(USER_AGENTS)
-        options.add_argument(f'user-agent={random_user_agent}')
-        logger.info(f"Using User-Agent: {random_user_agent}")
-
+        
         # --- إعدادات البروكسي (اختياري) ---
         if USE_PROXY:
             # هذه هي مجرد أمثلة، يجب استبدالها ببيانات بروكسي حقيقية
@@ -104,13 +86,20 @@ def login_and_get_info(email, password, verification_code=None, update=None, con
         else:
             logger.info("Proxy is disabled.")
 
-        # --- استخدام مدير الـ WebDriver الخاص بـ undetected-chromedriver ---
-        driver = uc.Chrome(options=options, version_main=None, use_subprocess=False)
+        # --- تهيئة الـ User-Agent ---
+        random_user_agent = random.choice(USER_AGENTS)
+        options.add_argument(f'user-agent={random_user_agent}')
+        logger.info(f"Using User-Agent: {random_user_agent}")
 
+        # --- استخدام undetected-chromedriver مع أقل تعديل ممكن ---
+        # سنترك المكتبة تضيف معظم الخيارات اللازمة
+        driver = uc.Chrome(options=options, version_main=None)
+
+        # --- تطبيق stealth لزيادة الإخفاء ---
         stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
-            platform="Win32", # تغيير النظام ليتناسب الـ User-Agent
+            platform="Win32",
             webgl_vendor="Intel Inc.",
             renderer="Intel Iris OpenGL Engine",
             fix_hairline=True,
