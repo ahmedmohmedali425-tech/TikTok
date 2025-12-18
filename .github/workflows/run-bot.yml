@@ -1,24 +1,33 @@
 name: Run Telegram Bot
 
 on:
-  # تشغيل البوت يدوياً بالضغط على زر
   workflow_dispatch:
-  # إعادة تشغيل البوت تلقائياً إذا توقف لأي سبب (كل 10 دقائق)
   schedule:
     - cron: '*/10 * * * *'
 
 jobs:
   run-bot:
-    # تحديد أن المهمة يجب أن تعمل على الـ Runner الذي أعددناه
     runs-on: self-hosted
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Set up Python and create virtual environment
+        run: |
+          python -m venv venv
+          .\venv\Scripts\activate
+          python --version
+
+      - name: Install dependencies
+        run: |
+          .\venv\Scripts\activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
       - name: Run Telegram Bot
         env:
-          # تمرير التوكن إلى الكود كمتغير بيئي
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         run: |
+          .\venv\Scripts\activate
           python bot.py
