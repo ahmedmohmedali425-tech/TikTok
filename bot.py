@@ -71,7 +71,7 @@ def login_and_get_info(email, password, verification_code=None):
         stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
-            platform="Linux", # تحديد النظام ليتوافق مع Render
+            platform="Linux",
             webgl_vendor="Intel Inc.",
             renderer="Intel Iris OpenGL Engine",
             fix_hairline=True,
@@ -101,7 +101,6 @@ def login_and_get_info(email, password, verification_code=None):
 
         # التحقق من وجود صفحة تغيير كلمة المرور
         if "reset-password" in driver.current_url:
-            # في بيئة تلقائية، تغيير كلمة المرور معقد جداً وغير موثوق
             return {"status": "need_new_password", "message": "كلمة المرور خاطئة أو منتهية الصلاحية. يرجى تسجيل الدخول يدوياً من التطبيق لتغييرها."}
 
         # إذا تم تسجيل الدخول بنجاح
@@ -118,7 +117,6 @@ def login_and_get_info(email, password, verification_code=None):
         except: profile_info['bio'] = "لا يوجد وصف"
         
         try:
-            # استخدام محدد أكثر قوة لعدد المتابعين
             followers_element = driver.find_element(By.XPATH, "//a[contains(@href, '/followers')]//strong")
             profile_info['followers'] = followers_element.text
         except:
@@ -134,27 +132,27 @@ def login_and_get_info(email, password, verification_code=None):
         return {"status": "failed", "message": f"فشل تسجيل الدخول: {str(e)}"}
 
 # --- معالجات الأوامر والرسائل ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("تسجيل دخول جديد", callback_data='new_login')],
         [InlineKeyboardButton("تسجيل الدخول بحساب محفوظ", callback_data='saved_login')],
+        [InlineKeyboardButton("عدد الحسابات المسجلة", callback_data='count_accounts')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("أهلاً بك! اختر ما تريد فعله:", reply_markup=reply_markup)
-    return ConversationHandler.END
 
-async def new_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def new_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(text="أرسل لي بريدك الإلكتروني أو اسم المستخدم:")
     return USERNAME
 
-async def get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def get_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['username'] = update.message.text
     await update.message.reply_text("ممتاز. الآن أرسل لي كلمة المرور:")
     return PASSWORD
 
-async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['password'] = update.message.text
     username = context.user_data['username']
     password = context.user_data['password']
@@ -179,7 +177,7 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         
     return ConversationHandler.END
 
-async def get_verification_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def get_verification_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['verification_code'] = update.message.text
     username = context.user_data['username']
     password = context.user_data['password']
@@ -238,7 +236,17 @@ async def handle_saved_login(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await query.edit_message_text(text=f"❌ فشل تسجيل الدخول: {result['message']}")
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def count_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    accounts = read_accounts()
+    count = len(accounts)
+    if count == 0:
+        await query.edit_message_text(text="لا توجد حسابات مسجلة حالياً.")
+    else:
+        await query.edit_message_text(text=f"يوجد {count} حساب مسجل في القائمة. البوت يعمل بشكل صحيح وهو نشط.")
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("تم إلغاء العملية.")
     return ConversationHandler.END
 
@@ -249,20 +257,23 @@ def main() -> None:
         
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+    # إعادة تعريف ConversationHandler ليعمل بشكل صحيح
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[CallbackQueryHandler(new_login_prompt, pattern='^new_login$')],
         states={
             USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_username)],
             PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_password)],
             VERIFICATION_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_verification_code)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        per_chat=True, # مهم جداً لضمان أن المحادثة تعمل لكل مستخدم على حدة
     )
 
+    application.add_handler(CommandHandler("start", start))
     application.add_handler(conv_handler)
-    application.add_handler(CallbackQueryHandler(new_login_prompt, pattern='^new_login$'))
     application.add_handler(CallbackQueryHandler(saved_login_prompt, pattern='^saved_login$'))
     application.add_handler(CallbackQueryHandler(handle_saved_login, pattern='^login_'))
+    application.add_handler(CallbackQueryHandler(count_accounts, pattern='^count_accounts$'))
     
     application.run_polling()
 
