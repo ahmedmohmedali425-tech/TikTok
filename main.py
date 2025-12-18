@@ -1,145 +1,264 @@
 import os
+import telegram
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 import time
 import random
+import logging
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager # استيراد المدير
+from selenium_stealth import stealth
+import undetected_chromedriver as uc
 
-# --- إعدادات عامة ---
-timers = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+# --- إعدادات ---
+# قراءة التوكن من متغير بيئي لأمان أكبر
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
-# --- دالة لقراءة الحسابات من ملف user.txt ---
-def read_accounts(filename="user.txt"):
-    """تقرأ الحسابات من ملف نصي وتعيدها كقائمة."""
-    accounts = []
-    try:
-        with open(filename, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            for i in range(0, len(lines), 2):
-                if i + 1 < len(lines):
-                    username_line = lines[i].strip()
-                    password_line = lines[i+1].strip()
-                    
-                    if "username:" in username_line and "password:" in password_line:
-                        username = username_line.split("username:", 1)[1].strip()
-                        password = password_line.split("password:", 1)[1].strip()
-                        accounts.append({"username": username, "password": password})
-    except FileNotFoundError:
-        print(f"خطأ: ملف {filename} غير موجود. تأكد من وجود الملف في المستودع.")
-        return []
+# تفعيل السجلات لرؤية الأخطاء
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# --- حالات المحادثة (Conversation States) ---
+(USERNAME, PASSWORD, VERIFICATION_CODE) = range(3)
+
+# --- ملف لحفظ الحسابات ---
+ACCOUNTS_FILE = 'user.txt'
+
+# --- دالة مساعدة لقراءة الحسابات ---
+def read_accounts():
+    accounts = {}
+    if not os.path.exists(ACCOUNTS_FILE):
+        return accounts
+    with open(ACCOUNTS_FILE, 'r', encoding='utf-8') as f:
+        for line in f:
+            if ':' in line:
+                email, password = line.strip().split(':', 1)
+                accounts[email] = password
     return accounts
 
-# --- دالة مساعدة لإنشاء تأخير عشوائي ---
-def sleeper():
-    """تنشئ تأخيراً زمنياً قصيراً وعشوائياً لمحاكاة السلوك البشري."""
-    time.sleep(float("0." + random.choice(timers[1:9]) + random.choice(timers)))
+# --- دالة مساعدة لحفظ حساب ---
+def save_account(email, password):
+    accounts = read_accounts()
+    accounts[email] = password
+    with open(ACCOUNTS_FILE, 'w', encoding='utf-8') as f:
+        for email, password in accounts.items():
+            f.write(f"{email}:{password}\n")
 
-# --- الدالة الرئيسية لتسجيل الدخول ---
-def login_to_tiktok(username, password):
-    """
-    تقوم بتسجيل الدخول إلى حساب تيك توك واحد، وتستخرج معلوماته.
-    """
-    print(f"\n[بدء] محاولة تسجيل الدخول للحساب: {username}")
-
-    # إعداد المتصفح باستخدام selenium القياسي مع خيارات لإخفاء البوت
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    
-    # خيارات قوية لإخفاء البوت
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-plugins")
-    options.add_argument("--disable-images")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-
-    # استخدام webdriver-manager لتثبيت chromedriver تلقائياً
-    service = ChromeService(executable_path=ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-
-    # تنفيذ سكربت لإزالة خاصية webdriver
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
+# --- دالة تسجيل الدخول (تعمل في خيط منفصل) ---
+def login_and_get_info(email, password, verification_code=None):
+    driver = None # التأكد من تعريف driver قبل try
     try:
-        start_time = time.time()
+        # إعدادات المتصفح للعمل على الخوادم (headless)
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
+
+        driver = uc.Chrome(use_subprocess=True, headless=True, options=options)
+        stealth(driver,
+            languages=["en-US", "en"],
+            vendor="Google Inc.",
+            platform="Linux", # تحديد النظام ليتوافق مع Render
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True,
+        )
+
         driver.get("https://www.tiktok.com/login/phone-or-email/email")
-
-        # --- إدخال اسم المستخدم ---
-        username_field = WebDriverWait(driver, 15).until(
+        
+        WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Email or username']"))
-        )
-        for char in username:
-            username_field.send_keys(char)
-            sleeper()
+        ).send_keys(email)
 
-        # --- إدخال كلمة المرور ---
-        password_field = driver.find_element(By.XPATH, "//input[@placeholder='Password']")
-        for char in password:
-            password_field.send_keys(char)
-            sleeper()
+        driver.find_element(By.XPATH, "//input[@placeholder='Password']").send_keys(password)
+        driver.find_element(By.XPATH, "//button[@type='submit']").click()
+        time.sleep(3) # انتظار قصير للتحقق
 
-        # --- النقر على زر تسجيل الدخول ---
-        login_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))
-        )
-        login_button.click()
+        # التحقق من وجود صفحة رمز التحقق
+        if "verification" in driver.current_url:
+            if not verification_code:
+                return {"status": "need_verification_code", "message": "تم إرسال رمز تحقق إلى بريدك الإلكتروني. الرجاء إدخاله."}
+            
+            code_field = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Verification code']"))
+            )
+            code_field.send_keys(verification_code)
+            driver.find_element(By.XPATH, "//button[contains(., 'Verify')]").click()
+            time.sleep(3)
 
-        # --- استخراج معلومات الحساب بعد تسجيل الدخول ---
-        print(f"[نجاح] تم تسجيل الدخول بنجاح للحساب: {username}. جاري استخراج المعلومات...")
+        # التحقق من وجود صفحة تغيير كلمة المرور
+        if "reset-password" in driver.current_url:
+            # في بيئة تلقائية، تغيير كلمة المرور معقد جداً وغير موثوق
+            return {"status": "need_new_password", "message": "كلمة المرور خاطئة أو منتهية الصلاحية. يرجى تسجيل الدخول يدوياً من التطبيق لتغييرها."}
+
+        # إذا تم تسجيل الدخول بنجاح
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.XPATH, "//div[@data-e2e='top-nav-avatar']//img"))
+        ).click()
         
-        profile_icon = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.XPATH, "//div[@data-e2e='top-nav-avatar']//img"))
-        )
-        profile_icon.click()
-        
-        profile_username_element = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.XPATH, "//h1[@data-e2e='user-title']"))
-        )
-        profile_username = profile_username_element.text
-
+        profile_info = {}
         try:
-            bio_element = driver.find_element(By.XPATH, "//h2[@data-e2e='user-bio']")
-            bio = bio_element.text
+            profile_info['username'] = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//h1[@data-e2e='user-title']"))
+            ).text
+            profile_info['bio'] = driver.find_element(By.XPATH, "//h2[@data-e2e='user-bio']").text
+        except: profile_info['bio'] = "لا يوجد وصف"
+        
+        try:
+            followers_text = driver.find_element(By.XPATH, "//a[@href='/foryou?lang=ar']/following-sibling::*[1]").text
+            profile_info['followers'] = followers_text
         except:
-            bio = "لا يوجد وصف"
+            profile_info['followers'] = "غير متوفر"
 
-        end_time = time.time()
-        duration = end_time - start_time
-
-        print("-" * 30)
-        print(f"  ✅ تم تسجيل الدخول بنجاح!")
-        print(f"  📧 البريد الإلكتروني: {username}")
-        print(f"  👤 اسم المستخدم في تيك توك: {profile_username}")
-        print(f"  📝 الوصف: {bio}")
-        print(f"  ⏱️ تمت العملية في {duration:.2f} ثانية")
-        print("-" * 30)
+        driver.quit()
+        return {"status": "success", "info": profile_info}
 
     except Exception as e:
-        print(f"[خطأ] فشلت عملية تسجيل الدخول للحساب {username}: {e}")
+        if driver:
+            driver.quit()
+        logger.error(f"Error during login for {email}: {e}")
+        return {"status": "failed", "message": f"فشل تسجيل الدخول: {str(e)}"}
 
-    finally:
-        driver.quit()
-        print(f"[انتهاء] تم الانتهاء من معالجة الحساب: {username}")
+# --- معالجات الأوامر والرسائل (بقية الكود كما هو) ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    keyboard = [
+        [InlineKeyboardButton("تسجيل دخول جديد", callback_data='new_login')],
+        [InlineKeyboardButton("تسجيل الدخول بحساب محفوظ", callback_data='saved_login')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("أهلاً بك! اختر ما تريد فعله:", reply_markup=reply_markup)
+    return ConversationHandler.END
 
+async def new_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="أرسل لي بريدك الإلكتروني أو اسم المستخدم:")
+    return USERNAME
 
-# --- نقطة بداية تشغيل البرنامج ---
-if __name__ == "__main__":
-    accounts_to_login = read_accounts("user.txt")
+async def get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['username'] = update.message.text
+    await update.message.reply_text("ممتاز. الآن أرسل لي كلمة المرور:")
+    return PASSWORD
+
+async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['password'] = update.message.text
+    username = context.user_data['username']
+    password = context.user_data['password']
     
-    if not accounts_to_login:
-        print("لم يتم العثور على حسابات صالحة في ملف user.txt. الرجاء التحقق من الملف.")
+    await update.message.reply_text("جاري محاولة تسجيل الدخول... قد يستغرق هذا بعض الوقت.")
+    
+    result = login_and_get_info(username, password)
+    
+    if result['status'] == 'success':
+        save_account(username, password)
+        info = result['info']
+        msg = (f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
+               f"👤 **اسم المستخدم:** {info['username']}\n"
+               f"📝 **الوصف:** {info['bio']}\n"
+               f"👥 **المتابعون:** {info['followers']}")
+        await update.message.reply_text(msg, parse_mode='Markdown')
+    elif result['status'] == 'need_verification_code':
+        await update.message.reply_text(result['message'])
+        return VERIFICATION_CODE
     else:
-        print(f"تم العثور على {len(accounts_to_login)} حساباً. بدء المعالجة المتسلسلة...")
+        await update.message.reply_text(f"❌ {result['message']}")
         
-        for account in accounts_to_login:
-            login_to_tiktok(account['username'], account['password'])
+    return ConversationHandler.END
 
-        print("\nاكتملت جميع محاولات تسجيل الدخول.")
+async def get_verification_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['verification_code'] = update.message.text
+    username = context.user_data['username']
+    password = context.user_data['password']
+    code = context.user_data['verification_code']
+    
+    await update.message.reply_text("جاري التحقق من الرمز...")
+    result = login_and_get_info(username, password, verification_code=code)
+    
+    if result['status'] == 'success':
+        save_account(username, password)
+        info = result['info']
+        msg = (f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
+               f"👤 **اسم المستخدم:** {info['username']}\n"
+               f"📝 **الوصف:** {info['bio']}\n"
+               f"👥 **المتابعون:** {info['followers']}")
+        await update.message.reply_text(msg, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(f"❌ فشل التحقق: {result['message']}")
+        
+    return ConversationHandler.END
+
+async def saved_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    accounts = read_accounts()
+    if not accounts:
+        await query.edit_message_text(text="لا توجد حسابات محفوظة حالياً.")
+        return ConversationHandler.END
+
+    keyboard = [[InlineKeyboardButton(email, callback_data=f'login_{email}')] for email in accounts.keys()]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text="اختر الحساب الذي تريد تسجيل الدخول به:", reply_markup=reply_markup)
+    return ConversationHandler.END
+
+async def handle_saved_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    email = query.data.split('_', 1)[1]
+    accounts = read_accounts()
+    password = accounts.get(email)
+    
+    if not password:
+        await query.edit_message_text(text="حدث خطأ، لم يتم العثور على كلمة المرور لهذا الحساب.")
+        return
+
+    await query.edit_message_text(text=f"جاري تسجيل الدخول للحساب: {email}...")
+    result = login_and_get_info(email, password)
+    
+    if result['status'] == 'success':
+        info = result['info']
+        msg = (f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
+               f"👤 **اسم المستخدم:** {info['username']}\n"
+               f"📝 **الوصف:** {info['bio']}\n"
+               f"👥 **المتابعون:** {info['followers']}")
+        await query.edit_message_text(text=msg, parse_mode='Markdown')
+    else:
+        await query.edit_message_text(text=f"❌ فشل تسجيل الدخول: {result['message']}")
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("تم إلغاء العملية.")
+    return ConversationHandler.END
+
+def main() -> None:
+    if not TELEGRAM_TOKEN:
+        logger.error("TELEGRAM_TOKEN is not set!")
+        return
+        
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_username)],
+            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_password)],
+            VERIFICATION_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_verification_code)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(new_login_prompt, pattern='^new_login$'))
+    application.add_handler(CallbackQueryHandler(saved_login_prompt, pattern='^saved_login$'))
+    application.add_handler(CallbackQueryHandler(handle_saved_login, pattern='^login_'))
+    
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
