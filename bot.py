@@ -7,9 +7,11 @@ import random
 import logging
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
+from webdriver_manager.chrome import ChromeDriverManager # استيراد المدير
 
 # --- إعدادات ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -27,7 +29,7 @@ ACCOUNTS_FILE = 'user.txt'
 # --- قائمة لتخزين بيانات الدخول المتعددة ---
 login_queue = []
 
-# --- دالات مساعدة لقراءة وحفظ الحسابات ---
+# --- دالة مساعدة لقراءة الحسابات ---
 def read_accounts():
     accounts = {}
     if not os.path.exists(ACCOUNTS_FILE):
@@ -45,6 +47,7 @@ def read_accounts():
                     continue
     return accounts
 
+# --- دالة مساعدة لحفظ حساب ---
 def save_account(username, password):
     accounts = read_accounts()
     accounts[username] = password
@@ -56,7 +59,10 @@ def save_account(username, password):
 def login_and_get_info(email, password, verification_code=None):
     driver = None
     try:
+        # استخدام webdriver-manager لتثبيت chromedriver تلقائياً
+        service = ChromeDriverManager().install()
         options = webdriver.ChromeOptions()
+        
         # خيارات قوية لإخفاء البوت
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
@@ -69,12 +75,9 @@ def login_and_get_info(email, password, verification_code=None):
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
-        
-        # تعديل وكيل المستخدم ليتوافق مع بيئة GitHub
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-        # استخدام Selenium القياسي
-        driver = webdriver.Chrome(options=options)
+        driver = webdriver.Chrome(service=service, options=options)
         
         # تنفيذ سكربت لخفاء البوت
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
@@ -97,7 +100,7 @@ def login_and_get_info(email, password, verification_code=None):
                 EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'Verification code')]"))
             )
             code_field.send_keys(verification_code)
-            driver.find_element(By.XPATH, "//button[data-e2e='verify-button']").click()
+            driver.find_element(By.XPATH, "//button[contains(., 'Verify')]").click()
             time.sleep(4)
 
         if "reset-password" in driver.current_url:
@@ -113,7 +116,7 @@ def login_and_get_info(email, password, verification_code=None):
                 EC.presence_of_element_located((By.XPATH, "//h1[@data-e2e='user-title']"))
             ).text
             profile_info['bio'] = driver.find_element(By.XPATH, "//h2[@data-e2e='user-bio']").text
-        except: 
+        except:
             profile_info['bio'] = "لا يوجد وصف"
         
         try:
@@ -144,7 +147,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def new_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(text="أرسل معلومات تسجيل الدخول بصيغة:\n\n`user: اسم_المستخدم passowed: كلمة_المرور`\n\nيمكنك إرسال عدة أسطر لتسجيل دخول أكثر من حساب.")
+    await query.edit_message_text(text="أرسل لي معلومات تسجيل الدخول بصيغة:\n\n`user: اسم_المستخدم passowed: كلمة_المرور`\n\nيمكنك إرسال عدة أسطر لتسجيل دخول أكثر من حساب في نفس الوقت.")
     return USERNAME
 
 async def get_login_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -174,14 +177,14 @@ async def get_login_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("لم يتم العثور على بيانات صالحة. يرجى المحاولة مرة أخرى.")
         return ConversationHandler.END
 
-    # استدعاء دالة المعالجة التسلسلية
+    await update.message.reply_text(f"تم استلام {len(login_queue)} طلب تسجيل دخول. سيتم البدء في المعالجة...")
+    
+    # معالجة الطلبات بشكل تسلسلي (واحد تلو الآخر)
     await process_login_queue(update, context)
     return ConversationHandler.END
 
 async def process_login_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تعالج طلبات تسجيل الدخول بشكل تسلسلي."""
-    await update.message.reply_text(f"تم استلام {len(login_queue)} طلب. جاري البدء...")
-    
     for i, account in enumerate(login_queue):
         username = account['username']
         password = account['password']
@@ -235,6 +238,7 @@ def main() -> None:
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=True,
+        per_message=False,
     )
 
     application.add_handler(CommandHandler("start", start))
