@@ -27,19 +27,15 @@ SESSIONS_FILE = 'sessions.txt'
 
 logging.basicConfig(
     format="asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
 logger = logging.getLogger(__name__)
 
 # --- قائمة User-Agents ---
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36)',
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0',
 ]
-
-# --- حالات المحادثة ---
-(EMAIL, PASSWORD, USERNAME, BIRTHDAY, BIRTHMONTH, BIRTHYEAR, VERIFICATION_CODE, ACCOUNT_CHOICE) = range(7)
 
 # --- قوائم مؤقتة ---
 creation_queue = []
@@ -81,14 +77,13 @@ def save_account(email, password):
 def save_session(email, cookies):
     """يحفظ الجلسة (الكوكيز) في ملف sessions.json."""
     sessions = read_sessions()
-    # تحويل كائنات الكوكيز إلى قائمة من القواميس
     cookies_list = [{'name': c['name'], 'value': c['value']} for c in cookies]
     sessions[email] = cookies_list
     with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
         json.dump(sessions, f, indent=4)
 
 def delete_session(email):
-    """يحذف جلسة من ملف sessions.json."""
+    """حذف جلسة من ملف sessions.json."""
     sessions = read_sessions()
     if email in sessions:
         del sessions[email]
@@ -130,7 +125,7 @@ def create_tiktok_account(email, username, password, birthday_day, birthday_mont
         driver = webdriver.Chrome(service=service, options=options)
         stealth(driver, vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
 
-        logger.info(f"Navigating to signup page for {email}")
+        logger.info(f"Navigating to signup page for {username}")
         driver.get("https://www.tiktok.com/signup/")
 
         # الخطوة 1: استخدام البريد الإلكتروني
@@ -193,7 +188,7 @@ def create_tiktok_account(email, username, password, birthday_day, birthday_mont
 
         # الخطوة 5: إنهاء الحساب
         WebDriverWait(driver, 15).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign up')]"))
+            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign up')]")
         ).click()
         
         logger.info(f"Account creation initiated for {username}. Waiting for verification page...")
@@ -281,7 +276,7 @@ def login_and_get_info(email, password, verification_code=None):
             logger.info("Proxy is disabled for standard login.")
 
         driver = webdriver.Chrome(service=service, options=options)
-        stealth(driver, vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
+        stealth(driver, vendor="Google Inc.", platform="Win32", webgl_vendor=" Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
 
         driver.get("https://www.tiktok.com/login/phone-or-email/email")
         
@@ -335,33 +330,33 @@ def login_and_get_info(email, password, verification_code=None):
         return {"status": "failed", "message": f"فشل تسجيل الدخول: {str(e)}"}
 
 # --- معالجات التليجرام ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, ContextTypes.DEFAULT_TYPE):
     """عرض القائمة الرئيسية."""
     keyboard = [
         [InlineKeyboardButton("تسجيل دخول جديد", callback_data='new_login')],
-        [InlineKeyboardButton("إنشاء حساب جديد", callback_data='create_account')],
-        [InlineKeyboardButton("تسجيل دخول باستخدام جلسة", callback_data='session_login')],
-        [InlineKeyboardButton("إدارة الجلسات", callback_data='manage_sessions')],
+        [InlineKeyboardButton("إنشاء حساب جديد", callback_data='create_account'),
+        [InlineKeyboardButton("تسجيل الدخول باستخدام جلسة", callback_data='session_login'),
+        [InlineKeyboardButton("إدارة الجلسات", callback_data='manage_sessions'),
         [InlineKeyboardButton("عدد الحسابات", callback_data='count_accounts')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("أهلاً بك! اختر ما تريد فعله:", reply_markup=reply_markup)
+    await update.message.reply_text("أهلاً بك! اختر ما تريد فعله:", reply_markup=backup_markup)
     return ConversationHandler.END
 
-async def new_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def new_login_prompt(update: Update, ContextTypes.ContextTypes.DEFAULT_TYPE):
     """يطلب البريد الإلكتروني لتسجيل الدخول العادي."""
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(text="أرسل لي بريدك الإلكتروني وكلمة المرور:")
     return EMAIL
 
-async def get_email(update: ContextTypes.DEFAULT_TYPE):
+async def get_email(update: Update, ContextTypes.DEFAULT_TYPE):
     """يستقبل البريد الإلكتروني."""
     context.user_data['email'] = update.message.text
     await update.message.reply_text("ممتاز. الآن أرسل لي كلمة المرور:")
     return PASSWORD
 
-async def get_password(update: ContextTypes.DEFAULT_TYPE):
+async def get_password(update: Update, ContextTypes.DEFAULT_TYPE):
     """يستقبل كلمة المرور ويبدأ عملية تسجيل الدخول."""
     context.user_data['password'] = update.message.text
     email = context.user_data['email']
@@ -396,10 +391,10 @@ async def get_verification_code(update: Update, ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ {result['message']}")
             
     login_queue.clear()
-    await update.message.reply_text("اكتملت جميع الطلبات.")
+    await update.message.reply_text("اكتملت جميع طلبات تسجيل الدخول.")
     return ConversationHandler.END
 
-async def create_account_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def create_account_prompt(update: Update, ContextTypes.DEFAULT_TYPE):
     """يطلب بيانات إنشاء الحساب."""
     query = update.callback_query
     await query.answer()
@@ -407,7 +402,7 @@ async def create_account_prompt(update: Update, context: ContextTypes.DEFAULT_TY
     return EMAIL
 
 async def get_account_details(update: Update, ContextTypes.DEFAULT_TYPE):
-    """يستقبل ويتحقق من صحة البيانات المرسالة."""
+    """يتحقق من صحة البيانات المرسالة."""
     text = update.message.text
     try:
         lines = [line.strip() for line in text.split('\n') if line.strip()]
@@ -431,7 +426,7 @@ async def get_account_details(update: Update, ContextTypes.DEFAULT_TYPE):
         })
         await update.message.reply_text("تم استلام البيانات. جاري إنشاء الحساب، قد يستغرق بعض الوقت...")
     except (ValueError, IndexError):
-        await update.message.reply_text("خطأ في صيغة البيانات المرسلة. يرجى التحقق وإعادة الإرسال.")
+        await update.message.reply_text("خطأ في صيغة البيانات المرسالة. يرجى التحقق وإعادة الإرسال.")
         return EMAIL
 
 async def session_login_prompt(update: Update, ContextTypes.DEFAULT_TYPE):
@@ -470,13 +465,13 @@ async def process_session_login(update: Update, ContextTypes.DEFAULT_TYPE):
         info = result['info']
         msg = (f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
                f"👤 **اسم المستخدم:** {info['username']}\n"
-               f"📝 **الوصف:** {info['bio']}\n"
+               f"📝 **الوظف:** {info['bio']\n"
                f"👥 **المتابعون:** {info['followers']}")
         await query.edit_message_text(text=msg, parse_mode='Markdown')
     else:
         await query.edit_message_text(text=f"❌ فشل تسجيل الدخول: {result['message']}")
 
-async def manage_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def manage_sessions(update: Update, ContextTypes.DEFAULT_TYPE):
     """إدارة الجلسات (عرضها وحذفها)."""
     query = update.callback_query
     await query.answer()
@@ -517,7 +512,7 @@ async def count_accounts(update: Update, ContextTypes.DEFAULT_TYPE):
     msg = (f"📊 **إحصائيات الحسابات والجلسات:**\n\n"
            f"   - عدد الحسابات المحفوظة: {account_count}\n"
            f"   - عدد الجلسات المحفوظة: {session_count}\n\n"
-           f"**قائمة الحسابات المحفوظة:**\n")
+           f"**قائمة الحسابات المحفوظة:**\n"
     
     if accounts:
         for email in accounts.keys():
@@ -534,15 +529,13 @@ async def count_accounts(update: Update, ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text(text=msg)
 
-
 async def cancel(update: Update, ContextTypes.DEFAULT_TYPE):
     """إلغاء العملية الحالية."""
     await update.message.reply_text("تم إلغاء العملية.")
     return ConversationHandler.END
 
-# --- معالجات معالجة الطلبات ---
-async def process_login_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة طلبات تسجيل الدخول العادي بشكل تسلسلي."""
+def process_login_queue(update: Update, ContextTypes.DEFAULT_TYPE):
+    """معالجة طلبات تسجيل الدخول بشكل تسلسلي."""
     for i, account in enumerate(login_queue):
         email = account['email']
         password = account['password']
@@ -556,31 +549,36 @@ async def process_login_queue(update: Update, context: ContextTypes.DEFAULT_TYPE
             info = result['info']
             msg = (f"✅ **تم تسجيل الدخول بنجاح!**\n\n"
                    f"👤 **اسم المستخدم:** {info['username']}\n"
-                   f"📝 **الوصف:** {info['bio']}\n"
-                   f"👥 **المتابعون:** {info['followers']}")
+                   f"📝 **الوصف:** {info['bio']\n"
+                   f"👥 **المتابعون:** {info['followers']}"
             await update.message.reply_text(msg, parse_mode='Markdown')
         elif result['status'] == 'need_verification_code':
             await update.message.reply_text(f"❌ {result['message']}")
         else:
-            await update.message.reply_text(f"❌ {result['message']}")
+            await update.message.reply_text(f"❌ فشل تسجيل الدخول: {result['message']}")
             
     login_queue.clear()
     await update.message.reply_text("اكتملت جميع طلبات تسجيل الدخول.")
     return ConversationHandler.END
 
-async def process_creation_queue(update: Update, ContextTypes.DEFAULT_TYPE):
+def process_creation_queue(update: Update, ContextTypes.DEFAULT_TYPE):
     """معالجة طلبات إنشاء الحسابات بشكل تسلسلي."""
-    for i, account_data in enumerate(creation_queue):
-        email = account_data['email']
-        await update.message.reply_text(f"جاري معالجة إنشاء الحساب رقم {i+1}: {email}...")
+    for i, account in enumerate(creation_queue):
+        email = account['email']
+        username = account['username']
+        password = account['password']
+        birthday_day = account['birthday_day']
+        birthday_month = account['birthday_month']
+        birthday_year = account['birthday_year']
+        
+        await update.message.reply_text(f"جاري إنشاء الحساب رقم {i+1}: {username}...")
         
         result = create_tiktok_account(
-            account_data['email'], account_data['username'], account_data['password'],
-            account_data['birthday_day'], account_data['birthday_month'], account_data['birthday_year']
+            email, username, password, birthday_day, birthday_month, birthday_year
         )
         
         if result['status'] == 'verification_needed':
-            save_account_details(account_data['email'], account_data['password'], account_data['username'])
+            save_account_details(account['email'], account['password'], account['username'])
             await update.message.reply_text(result['message'])
         else:
             await update.message.reply_text(f"❌ فشل إنشاء الحساب: {result['message']}")
@@ -588,9 +586,8 @@ async def process_creation_queue(update: Update, ContextTypes.DEFAULT_TYPE):
     creation_queue.clear()
     await update.message.reply_text("اكتملت جميع طلبات إنشاء الحسابات.")
 
-# --- الدالة الرئيسية ---
 def main() -> None:
-    if not TELEGRAM_TOKEN:
+    if not TELEGRAM البوت
         logger.error("TELEGRAM_TOKEN is not set!")
         return
         
@@ -601,8 +598,8 @@ def main() -> None:
             CallbackQueryHandler(new_login_prompt, pattern='^new_login$'),
             CallbackQueryHandler(create_account_prompt, pattern='^create_account$'),
             CallbackQueryHandler(session_login_prompt, pattern='^session_login$'),
-            CallbackQueryHandler(manage_sessions, pattern='^manage_sessions$'),
-            CallbackQueryHandler(count_accounts, pattern='^count_accounts$'),
+            CallbackQuery(manage_sessions, pattern='^manage_sessions$'),
+            CallbackQuery(count_accounts, pattern='^count_accounts$'),
         ],
         states={
             EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_account_details)],
